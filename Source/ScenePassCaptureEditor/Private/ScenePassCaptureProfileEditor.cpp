@@ -37,7 +37,7 @@ namespace
 {
 	constexpr float PreviewTileWidth = 280.0f;
 
-	FText GetSourceLabel(EScenePassCaptureSource Source)
+	FText GetSourceDisplayLabel(EScenePassCaptureSource Source)
 	{
 		if (const UEnum* EnumPtr = StaticEnum<EScenePassCaptureSource>())
 		{
@@ -410,7 +410,7 @@ void FScenePassCaptureProfileEditor::RefreshPreview()
 					.Padding(0.0f, 0.0f, 0.0f, 4.0f)
 					[
 						SNew(STextBlock)
-						.Text(GetSourceLabel(Entry.Source))
+						.Text(GetSourceDisplayLabel(Entry.Source))
 						.Font(FAppStyle::GetFontStyle(TEXT("PropertyWindow.BoldFont")))
 					]
 

@@ -96,7 +96,7 @@ namespace
 		}
 	}
 
-	FText GetSourceLabel(EScenePassCaptureSource Source)
+	FText GetSourceRuleLabel(EScenePassCaptureSource Source)
 	{
 		if (const UEnum* EnumPtr = StaticEnum<EScenePassCaptureSource>())
 		{
@@ -227,7 +227,7 @@ bool ScenePassCapture_ValidateTargetFormat(const FScenePassCaptureEntry& Entry, 
 	const ETextureRenderTargetFormat Recommended = ScenePassCapture_GetRecommendedFormat(Entry);
 	const FText FormatName = ScenePassCapture_GetFormatDisplayName(Format);
 	const FText RecommendedName = ScenePassCapture_GetFormatDisplayName(Recommended);
-	const FText SourceName = GetSourceLabel(Entry.Source);
+	const FText SourceName = GetSourceRuleLabel(Entry.Source);
 
 	// Errors first: these produce visibly wrong output, not just a quality loss.
 
