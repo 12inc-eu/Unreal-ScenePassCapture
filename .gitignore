@@ -1,0 +1,40 @@
+# Unreal Engine generated folders
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# IDE and editor files
+.idea/
+.vs/
+.vscode/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.xcodeproj
+*.xcworkspace
+
+# Compiled files
+*.a
+*.app
+*.dll
+*.dylib
+*.gch
+*.ipa
+*.la
+*.lai
+*.lib
+*.lo
+*.mod
+*.o
+*.obj
+*.out
+*.pch
+*.slo
+*.so
+
+# Generated map data
+*_BuiltData.uasset

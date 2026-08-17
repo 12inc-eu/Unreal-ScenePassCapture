@@ -1,0 +1,108 @@
+// Copyright Exiin Game Studio. All Rights Reserved.
+// Fullscreen blit that copies a renderer buffer into a user render target, with the small
+// amount of decoding the common scene passes need (channel extraction, normal expansion,
+// device Z linearisation, stencil unpack).
+
+#include "/Engine/Public/Platform.ush"
+
+Texture2D InputTexture;
+SamplerState InputSampler;
+
+// Maps output UV (0..1) into the source texture's UV space, accounting for the view rect
+// occupying only part of an oversized scene texture.
+float2 InputUVScale;
+float2 InputUVBias;
+float2 OutputInvExtent;
+
+// View.InvDeviceZToWorldZTransform, passed in explicitly so this shader does not need the view uniform buffer.
+float4 InvDeviceZToWorldZ;
+
+// Dotted with the sample in CHANNEL mode to pull out a single GBuffer channel.
+float4 ChannelMask;
+
+// 1/range for depth normalisation, or 0 to pass raw world units straight through.
+float DepthNormalizeScale;
+
+uint CopyMode;
+
+#define SPC_MODE_COPY          0
+#define SPC_MODE_CHANNEL       1
+#define SPC_MODE_DECODE_NORMAL 2
+#define SPC_MODE_LINEAR_DEPTH  3
+#define SPC_MODE_DEVICE_DEPTH  4
+
+// Same maths as ConvertFromDeviceZ in Common.ush, but reading our own uniform instead of the view buffer.
+float SPCConvertFromDeviceZ(float DeviceZ)
+{
+	return DeviceZ * InvDeviceZToWorldZ[0] + InvDeviceZToWorldZ[1] + 1.0f / (DeviceZ * InvDeviceZToWorldZ[2] - InvDeviceZToWorldZ[3]);
+}
+
+// Shared by the Texture2D and Texture2DArray entry points.
+float4 SPCDecodeSample(float4 Sample)
+{
+	float4 OutColor;
+
+	// CopyMode is uniform across the whole draw, so this branch is free.
+	if (CopyMode == SPC_MODE_CHANNEL)
+	{
+		const float Value = dot(Sample, ChannelMask);
+		OutColor = float4(Value, Value, Value, 1.0f);
+	}
+	else if (CopyMode == SPC_MODE_DECODE_NORMAL)
+	{
+		OutColor = float4(Sample.rgb * 2.0f - 1.0f, 1.0f);
+	}
+	else if (CopyMode == SPC_MODE_LINEAR_DEPTH)
+	{
+		const float WorldDepth = SPCConvertFromDeviceZ(Sample.r);
+		const float Value = (DepthNormalizeScale > 0.0f) ? saturate(WorldDepth * DepthNormalizeScale) : WorldDepth;
+		OutColor = float4(Value, Value, Value, 1.0f);
+	}
+	else if (CopyMode == SPC_MODE_DEVICE_DEPTH)
+	{
+		OutColor = float4(Sample.r, Sample.r, Sample.r, 1.0f);
+	}
+	else
+	{
+		OutColor = Sample;
+	}
+
+	return OutColor;
+}
+
+void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	const float2 UV = SvPosition.xy * OutputInvExtent * InputUVScale + InputUVBias;
+	OutColor = SPCDecodeSample(InputTexture.SampleLevel(InputSampler, UV, 0));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Several Lumen history buffers are Texture2DArray, one slice per Substrate closure. Binding those
+// to a Texture2D parameter trips an RDG assert, so they get their own entry point and take slice 0.
+
+Texture2DArray InputTextureArray;
+
+void MainArrayPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	const float2 UV = SvPosition.xy * OutputInvExtent * InputUVScale + InputUVBias;
+	OutColor = SPCDecodeSample(InputTextureArray.SampleLevel(InputSampler, float3(UV, 0), 0));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stencil needs its own entry point because the custom stencil SRV is a uint2, not a filterable float texture.
+
+Texture2D<uint2> StencilTexture;
+float2 StencilPixelScale;
+int2 StencilPixelOffset;
+float StencilNormalizeScale;
+
+void StencilPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	const int2 Pixel = int2(SvPosition.xy * StencilPixelScale) + StencilPixelOffset;
+
+	// Stencil lives in the second component of the uint2 view on every platform we support.
+	const uint Stencil = StencilTexture.Load(int3(Pixel, 0)).g;
+
+	const float Value = float(Stencil) * StencilNormalizeScale;
+	OutColor = float4(Value, Value, Value, 1.0f);
+}

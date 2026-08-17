@@ -1,0 +1,28 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "Scene Pass Capture",
+	"Description": "Taps the live render graph and copies scene passes (depth, GBuffer, pre-translucency color, post-tonemap color) into render targets driven by a data asset. No scene re-render.",
+	"Category": "Exiin",
+	"CreatedBy": "Exiin Game Studio",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "ScenePassCapture",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
+			"Name": "ScenePassCaptureEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}
