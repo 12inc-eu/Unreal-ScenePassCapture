@@ -89,6 +89,17 @@ private:
 
 	// --- render thread state ---
 	TSharedPtr<const FScenePassCaptureFrameTargets, ESPMode::ThreadSafe> RenderThreadTargets;
+	/**
+	 * The render-resolution view rect from the last post-opaque hook.
+	 *
+	 * Lumen's history buffers are allocated at the padded scene texture extent but only the view rect
+	 * inside them holds real data, and the state does not record that rect: HistoryEffectiveResolution
+	 * is the allocation size, not the valid region. Copying the whole allocation leaves the image in a
+	 * corner surrounded by padding. Post-opaque hands us the exact rect, and since it runs after this
+	 * hook we use last frame's, which is the right age for a one frame old history anyway.
+	 */
+	FIntRect LastViewRect_RT;
+
 	bool bInsideTrackedFamily_RT = false;
 	bool bCapturedPostOpaqueThisFamily_RT = false;
 };

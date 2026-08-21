@@ -13,5 +13,17 @@ bool UScenePassCaptureProfile::HasAnyWork() const
 			return true;
 		}
 	}
+	return HasAnyCustomPassWork();
+}
+
+bool UScenePassCaptureProfile::HasAnyCustomPassWork() const
+{
+	for (const FScenePassCaptureCustomPass& Pass : CustomPasses)
+	{
+		if (Pass.bEnabled && Pass.Target != nullptr)
+		{
+			return true;
+		}
+	}
 	return false;
 }

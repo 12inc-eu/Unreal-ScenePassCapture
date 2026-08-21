@@ -478,6 +478,13 @@ void FScenePassCaptureViewExtension::PreRenderViewFamily_RenderThread(FRDGBuilde
 				FIntRect LumenSourceRect;
 				if (FRDGTextureRef LumenTexture = ScenePassCapture_ResolveLumenTexture(GraphBuilder, View, Entry.Source, LumenSourceRect))
 				{
+					// The rect the buffer itself reports is the allocation, not the valid area, so the
+					// view rect from post-opaque wins whenever we have one.
+					if (!LastViewRect_RT.IsEmpty())
+					{
+						LumenSourceRect = LastViewRect_RT;
+					}
+
 					FRDGTextureRef DestTexture = RegisterExternalTexture(GraphBuilder, Entry.TargetRHI, TEXT("ScenePassCaptureTarget"));
 
 					// LumenSourceRect is the valid region. Copying the full padded extent would drag
@@ -500,6 +507,10 @@ void FScenePassCaptureViewExtension::OnPostOpaqueRender(FPostOpaqueRenderParamet
 	{
 		return;
 	}
+
+	// Recorded before any early-out below, so it is available even when only Lumen sources are in use
+	// and this hook has no targets of its own to write.
+	LastViewRect_RT = Parameters.ViewportRect;
 
 
 	const TSharedPtr<const FScenePassCaptureFrameTargets, ESPMode::ThreadSafe> Targets = RenderThreadTargets;

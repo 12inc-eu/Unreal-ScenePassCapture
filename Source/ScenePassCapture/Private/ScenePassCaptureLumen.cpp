@@ -48,8 +48,10 @@ namespace
 		const FScreenProbeGatherTemporalState& ScreenProbe = Lumen.ScreenProbeGatherState;
 		const FReSTIRTemporalAccumulationState& ReSTIR = Lumen.ReSTIRGatherState.TemporalAccumulationState;
 
-		// ScreenProbeGather records the resolution it wrote at; ReSTIR and reflections carry a rect.
-		const FIntRect ScreenProbeRect(FIntPoint::ZeroValue, ScreenProbe.HistoryEffectiveResolution);
+		// ScreenProbeGather's HistoryEffectiveResolution is the texture ALLOCATION size, not the region
+		// that holds data, so it is useless as a source rect and deliberately left empty here. The view
+		// extension substitutes the real view rect. ReSTIR and reflections do carry genuine rects.
+		const FIntRect ScreenProbeRect;
 		const FIntRect ReSTIRRect = ReSTIR.DiffuseIndirectHistoryViewRect;
 		const FIntRect ReflectionRect = Lumen.ReflectionState.HistoryViewRect;
 

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/EngineTypes.h"
 #include "ScenePassCaptureTypes.generated.h"
 
 class UTextureRenderTarget2D;
@@ -156,6 +157,239 @@ inline FIntPoint ScenePassCapture_ApplyResolutionScale(FIntPoint Size, EScenePas
 
 	return Result;
 }
+
+/** When a custom pass re-renders the scene. */
+UENUM(BlueprintType)
+enum class EScenePassCaptureTiming : uint8
+{
+	/** Re-render every frame. The most expensive option by far. */
+	EveryFrame UMETA(DisplayName = "Every Frame"),
+
+	/** Re-render every N frames, round-robin friendly. */
+	EveryNFrames UMETA(DisplayName = "Every N Frames"),
+
+	/** Only when Capture Custom Pass Now is called from Blueprint or C++. */
+	OnDemand UMETA(DisplayName = "On Demand"),
+};
+
+/**
+ * What a custom pass renders. These map onto engine show flags, so a custom pass is the same scene
+ * viewed with different settings, not a different buffer.
+ */
+USTRUCT(BlueprintType)
+struct SCENEPASSCAPTURE_API FScenePassCaptureShowFlags
+{
+	GENERATED_BODY()
+
+	// --- Lighting ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lighting")
+	bool bLighting = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lighting")
+	bool bDynamicShadows = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lighting")
+	bool bGlobalIllumination = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lighting")
+	bool bAmbientOcclusion = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lighting")
+	bool bReflectionEnvironment = true;
+
+	/** Replaces every material's base color with neutral grey, the engine's Lighting Only view mode. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lighting")
+	bool bLightingOnlyOverride = false;
+
+	// --- Geometry ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bStaticMeshes = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bSkeletalMeshes = true;
+
+	/** Groom and hair strands. This is the Hair flag, not VisualizeGroom, which is only a debug view. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bHair = true;
+
+	/**
+	 * Nanite renders through its own path, so a Nanite static mesh keeps drawing with Static Meshes
+	 * off. Both have to be unchecked to remove it.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bNaniteMeshes = true;
+
+	/** Instanced and hierarchical static meshes. These are NOT covered by Static Meshes either. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bInstancedStaticMeshes = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bInstancedGrass = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bBSP = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bLandscape = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bInstancedFoliage = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bParticles = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bTranslucency = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
+	bool bDecals = true;
+
+	// --- Atmosphere ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Atmosphere")
+	bool bFog = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Atmosphere")
+	bool bVolumetricFog = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Atmosphere")
+	bool bAtmosphere = true;
+
+	// --- Post processing ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Processing")
+	bool bPostProcessing = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Processing")
+	bool bBloom = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Processing")
+	bool bAntiAliasing = true;
+
+	/** Off by default: motion blur in a capture needs persistent temporal state to look right. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Processing")
+	bool bMotionBlur = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Processing")
+	bool bDepthOfField = false;
+};
+
+/**
+ * One extra render of the scene with its own settings, mirrored to the active camera.
+ *
+ * This is a fundamentally different cost tier to the pass sources above. Those copy a buffer the
+ * renderer already produced. This one renders the scene again: a few ms of GPU plus a serialized
+ * chunk of render thread, and the render thread part barely shrinks with Resolution Scale because
+ * visibility is per-primitive rather than per-pixel.
+ */
+USTRUCT(BlueprintType)
+struct SCENEPASSCAPTURE_API FScenePassCaptureCustomPass
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass")
+	bool bEnabled = true;
+
+	/** Label for the preview tile and the cost readout. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass")
+	FName PassName = TEXT("Custom Pass");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass")
+	TObjectPtr<UTextureRenderTarget2D> Target = nullptr;
+
+	/**
+	 * What the capture writes out. This is what decides whether you get transparency.
+	 *
+	 * SceneColor (HDR) is the one to use when isolating meshes: it puts INVERSE opacity in alpha, so
+	 * empty background is 1 and solid geometry is 0. Compositing wants coverage, so use 1 - Alpha in
+	 * the material. Needs a target with an alpha channel, RGBA16f being the natural choice.
+	 *
+	 * Final Color (LDR) is the tonemapped image but carries no useful alpha unless the project has
+	 * alpha propagation through post processing enabled, so an isolated mesh comes out on solid black.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass")
+	TEnumAsByte<ESceneCaptureSource> CaptureSource = ESceneCaptureSource::SCS_SceneColorHDR;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass")
+	EScenePassCaptureTiming Timing = EScenePassCaptureTiming::EveryNFrames;
+
+	/** Used when Timing is Every N Frames. 4 means one re-render every four frames. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass", meta = (ClampMin = "1", UIMax = "30", EditCondition = "Timing == EScenePassCaptureTiming::EveryNFrames"))
+	int32 FrameInterval = 4;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass")
+	EScenePassCaptureResolutionScale ResolutionScale = EScenePassCaptureResolutionScale::Half;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass", meta = (DisplayName = "Align Size To Multiple Of 2"))
+	bool bAlignSizeToMultipleOfTwo = true;
+
+	/** What this pass renders. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass")
+	FScenePassCaptureShowFlags ShowFlags;
+
+	/**
+	 * Render only actors carrying any of these tags. This is the selection method that works in game:
+	 * tags resolve against whatever is in the level at runtime, whereas the actor lists below are
+	 * references to specific level actors and are only usable on a level you edited by hand.
+	 *
+	 * Restricting the visible set is also the single most effective way to cut the render thread cost,
+	 * since visibility is per-primitive.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Selection")
+	TArray<FName> ShowOnlyActorTags;
+
+	/** Hide actors carrying any of these tags. Ignored while Show Only is in effect. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Selection")
+	TArray<FName> HiddenActorTags;
+
+	/**
+	 * Render only components carrying any of these Component Tags. Finer than the actor lists: it can
+	 * pick one mesh out of an actor and leave the rest, which is how you isolate a character's body
+	 * without its weapons.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Selection")
+	TArray<FName> ShowOnlyComponentTags;
+
+	/**
+	 * Hide components carrying any of these Component Tags. This is also the only way to exclude
+	 * component types that have no show flag at all, dynamic meshes among them.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Selection")
+	TArray<FName> HiddenComponentTags;
+
+	/** Specific level actors. Editor and hand-authored levels only: these cannot resolve in a packaged game. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Selection", meta = (DisplayName = "Show Only Actors (Editor Only)"))
+	TArray<TSoftObjectPtr<AActor>> ShowOnlyActors;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Selection", meta = (DisplayName = "Hidden Actors (Editor Only)"))
+	TArray<TSoftObjectPtr<AActor>> HiddenActors;
+
+	/**
+	 * Restricts the pass to a depth slab, which is the cheapest way to render "just this character and
+	 * nothing else around it". With a Focus Actor set the slab follows that actor's distance from the
+	 * camera, so it stays centred on them as they move.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Depth Slab")
+	bool bUseDepthSlab = false;
+
+	/** Slab centre. Leave empty to use Near and Far as plain distances from the camera. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Depth Slab", meta = (EditCondition = "bUseDepthSlab"))
+	TSoftObjectPtr<AActor> FocusActor;
+
+	/** Centimetres in front of the focus actor, or the near clip distance when there is no focus actor. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Depth Slab", meta = (EditCondition = "bUseDepthSlab", ClampMin = "1.0"))
+	float SlabNear = 100.0f;
+
+	/** Centimetres behind the focus actor, or the far clip distance when there is no focus actor. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass|Depth Slab", meta = (EditCondition = "bUseDepthSlab", ClampMin = "1.0"))
+	float SlabFar = 100.0f;
+
+	/** Keeps temporal history between captures. Needed for TSR, motion blur and velocity, costs memory. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Custom Pass", meta = (AdvancedDisplay))
+	bool bPersistRenderingState = false;
+};
 
 /** One "grab this pass into this render target" instruction. */
 USTRUCT(BlueprintType)
